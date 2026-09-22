@@ -1,29 +1,39 @@
-name: Monex Economic Calendar
+name: Calendar Test
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
-  check:
+  test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install packages
-        run: |
-          pip install requests beautifulsoup4 pillow
+      - name: Install requests
+        run: python -m pip install requests
 
-      - name: Run bot
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      - name: Test Investing
         run: |
-          python bot.py
+          python - <<'PY'
+          import requests
+
+          url = "https://www.investing.com/economic-calendar/"
+
+          headers = {
+              "User-Agent": "Mozilla/5.0"
+          }
+
+          r = requests.get(
+              url,
+              headers=headers,
+              timeout=30
+          )
+
+          print("STATUS:", r.status_code)
+          print("LENGTH:", len(r.text))
+          print(r.text[:500])
+          PY
