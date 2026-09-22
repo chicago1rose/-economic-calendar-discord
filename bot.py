@@ -13,120 +13,122 @@ from PIL import Image, ImageDraw, ImageFont
 
 MONEX_URL = os.getenv(
     "MONEX_URL",
-    "https://mst.monex.co.jp/pc/servlet/ITS/report/EconomyIndexCalendar"
+    "https://mxp2.monex.co.jp/pc/servlet/ITS/report/EconomyIndexCalendar"
 )
 
 DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
 
-NOTICE_MINUTES = int(os.getenv("NOTICE_MINUTES", "30"))
-STATE_FILE = Path(os.getenv("STATE_FILE", "state.json"))
+NOTICE_MINUTES = 30
+STATE_FILE = Path("state.json")
 
 TZ = ZoneInfo("Asia/Tokyo")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; EconomicCalendarBot/1.0)"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/140.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,"
+        "application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Referer": "https://www.monex.co.jp/",
+    "Connection": "keep-alive",
 }
 
 
 def find_font(size):
-    candidates = [
+    fonts = [
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansJP-Regular.otf",
+        "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.otf",
     ]
 
-    for p in candidates:
-        if Path(p).exists():
-            return ImageFont.truetype(p, size)
+    for font in fonts:
+        if Path(font).exists():
+            return ImageFont.truetype(font, size)
 
     return ImageFont.load_default()
 
 
-def normalize_cell(text):
+def normalize(text):
     return re.sub(r"\s+", " ", text or "").strip()
 
 
 def extract_country(cell):
-    text = normalize_cell(cell.get_text(" ", strip=True))
-
-    if text:
-        return text
-
-    mapping = {
-        "japan": "日本",
-        "jp": "日本",
-        "usa": "アメリカ",
-        "us": "アメリカ",
-        "america": "アメリカ",
-        "euro": "欧州",
-        "eu": "欧州",
-        "europe": "欧州",
-        "uk": "英国",
-        "england": "英国",
-        "germany": "ドイツ",
-        "de": "ドイツ",
-        "france": "フランス",
-        "fr": "フランス",
-        "australia": "豪州",
-        "au": "豪州",
-        "newzealand": "NZ",
-        "nz": "NZ",
-        "canada": "カナダ",
-        "ca": "カナダ",
-        "switzerland": "スイス",
-        "ch": "スイス",
-        "china": "中国",
-        "cn": "中国",
-        "hongkong": "香港",
-        "hk": "香港",
-        "india": "インド",
-        "in": "インド",
-        "brazil": "ブラジル",
-        "br": "ブラジル",
-        "southafrica": "南アフリカ",
-        "za": "南アフリカ",
-        "turkey": "トルコ",
-        "tr": "トルコ",
-        "korea": "韓国",
-        "kr": "韓国",
-        "singapore": "シンガポール",
-        "sg": "シンガポール",
-    }
-
     for tag in cell.find_all(["img", "a"]):
-        for attr in ("alt", "title", "aria-label"):
-            value = normalize_cell(tag.get(attr, ""))
+
+        for attr in ["alt", "title", "aria-label"]:
+            value = normalize(tag.get(attr, ""))
 
             if value:
                 return value
 
         src = (tag.get("src", "") or "").lower()
 
+        mapping = {
+            "japan": "日本",
+            "jp": "日本",
+            "usa": "アメリカ",
+            "us": "アメリカ",
+            "america": "アメリカ",
+            "euro": "欧州",
+            "eu": "欧州",
+            "uk": "英国",
+            "england": "英国",
+            "germany": "ドイツ",
+            "france": "フランス",
+            "australia": "豪州",
+            "newzealand": "NZ",
+            "nz": "NZ",
+            "canada": "カナダ",
+            "switzerland": "スイス",
+            "china": "中国",
+            "hongkong": "香港",
+            "india": "インド",
+            "brazil": "ブラジル",
+            "southafrica": "南アフリカ",
+            "turkey": "トルコ",
+            "korea": "韓国",
+            "singapore": "シンガポール",
+        }
+
         for key, name in mapping.items():
             if key in src:
                 return name
 
-    return "国・地域"
+    text = normalize(cell.get_text(" ", strip=True))
+
+    return text if text else "国・地域"
 
 
-def parse_event_datetime(date_s, time_s, now):
+def parse_datetime(date_s, time_s, now):
+
     if not re.match(r"^\d{1,2}/\d{1,2}$", date_s):
         return None
 
     if not re.match(r"^\d{1,2}:\d{2}$", time_s):
         return None
 
-    m, d = map(int, re.findall(r"\d+", date_s)[:2])
-    hh, mm = map(int, time_s.split(":"))
+    month, day = map(
+        int,
+        date_s.split("/")
+    )
+
+    hour, minute = map(
+        int,
+        time_s.split(":")
+    )
 
     try:
         dt = datetime(
             now.year,
-            m,
-            d,
-            hh,
-            mm,
+            month,
+            day,
+            hour,
+            minute,
             tzinfo=TZ
         )
     except ValueError:
@@ -139,21 +141,36 @@ def parse_event_datetime(date_s, time_s, now):
 
 
 def fetch_calendar():
-    response = requests.get(
-        MONEX_URL,
-        headers=HEADERS,
+
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    # 先にMonexへアクセスしてセッションを作る
+    session.get(
+        "https://mxp2.monex.co.jp/",
         timeout=20
     )
 
+    response = session.get(
+        MONEX_URL,
+        timeout=30
+    )
+
+    print("Monex status:", response.status_code)
+
     response.raise_for_status()
 
-    response.encoding = response.apparent_encoding or response.encoding
+    response.encoding = response.apparent_encoding
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser"
+    )
+
+    now = datetime.now(TZ)
 
     rows = []
     current_date = None
-    now = datetime.now(TZ)
 
     for tr in soup.find_all("tr"):
 
@@ -163,10 +180,13 @@ def fetch_calendar():
             continue
 
         texts = [
-            normalize_cell(
-                c.get_text(" ", strip=True)
+            normalize(
+                cell.get_text(
+                    " ",
+                    strip=True
+                )
             )
-            for c in cells
+            for cell in cells
         ]
 
         joined = " | ".join(texts)
@@ -179,7 +199,10 @@ def fetch_calendar():
 
         date_s = texts[0]
 
-        if re.match(r"^\d{1,2}/\d{1,2}$", date_s):
+        if re.match(
+            r"^\d{1,2}/\d{1,2}$",
+            date_s
+        ):
             current_date = date_s
 
         elif current_date:
@@ -189,25 +212,45 @@ def fetch_calendar():
             continue
 
         time_s = texts[1]
-
         importance = texts[2].replace(" ", "")
 
         if "★" not in importance:
             continue
 
-        country = extract_country(cells[3])
+        country = extract_country(
+            cells[3]
+        )
 
         indicator = texts[4]
 
         if not indicator:
             continue
 
-        previous = texts[5] if len(texts) > 5 else "-"
-        forecast = texts[6] if len(texts) > 6 else "-"
-        result = texts[7] if len(texts) > 7 else "-"
-        note = texts[8] if len(texts) > 8 else ""
+        previous = (
+            texts[5]
+            if len(texts) > 5
+            else "-"
+        )
 
-        dt = parse_event_datetime(
+        forecast = (
+            texts[6]
+            if len(texts) > 6
+            else "-"
+        )
+
+        result = (
+            texts[7]
+            if len(texts) > 7
+            else "-"
+        )
+
+        note = (
+            texts[8]
+            if len(texts) > 8
+            else ""
+        )
+
+        dt = parse_datetime(
             date_s,
             time_s,
             now
@@ -226,7 +269,11 @@ def fetch_calendar():
 
         rows.append({
             "id": event_id,
-            "datetime": dt.isoformat() if dt else None,
+            "datetime": (
+                dt.isoformat()
+                if dt
+                else None
+            ),
             "date": date_s,
             "time": time_s,
             "importance": importance,
@@ -238,30 +285,25 @@ def fetch_calendar():
             "note": note or "",
         })
 
-    seen = set()
-    output = []
-
+    unique = {}
     for item in rows:
+        unique[item["id"]] = item
 
-        if item["id"] in seen:
-            continue
+    print(
+        "取得件数:",
+        len(unique)
+    )
 
-        seen.add(item["id"])
-        output.append(item)
-
-    return output
+    return list(unique.values())
 
 
 def load_state():
 
-    default_state = {
-        "posted_day": {},
-        "posted_notice": {},
-        "posted_result": {}
-    }
-
     if not STATE_FILE.exists():
-        return default_state
+        return {
+            "posted_notice": {},
+            "posted_result": {}
+        }
 
     try:
         state = json.loads(
@@ -269,18 +311,27 @@ def load_state():
                 encoding="utf-8"
             )
         )
+
+        if not isinstance(state, dict):
+            raise ValueError
+
+        state.setdefault(
+            "posted_notice",
+            {}
+        )
+
+        state.setdefault(
+            "posted_result",
+            {}
+        )
+
+        return state
+
     except Exception:
-        return default_state
-
-    # 古いstate.json対策
-    if not isinstance(state, dict):
-        return default_state
-
-    state.setdefault("posted_day", {})
-    state.setdefault("posted_notice", {})
-    state.setdefault("posted_result", {})
-
-    return state
+        return {
+            "posted_notice": {},
+            "posted_result": {}
+        }
 
 
 def save_state(state):
@@ -295,25 +346,7 @@ def save_state(state):
     )
 
 
-def rounded_box(
-    draw,
-    xy,
-    radius=22,
-    fill=(25, 25, 32),
-    outline=(125, 70, 220),
-    width=3
-):
-
-    draw.rounded_rectangle(
-        xy,
-        radius=radius,
-        fill=fill,
-        outline=outline,
-        width=width
-    )
-
-
-def make_image(item, mode="event"):
+def make_image(item, mode):
 
     W = 1400
     H = 820
@@ -356,9 +389,12 @@ def make_image(item, mode="event"):
         fill=gray
     )
 
-    rounded_box(
-        d,
-        (55, 135, W - 55, H - 55)
+    d.rounded_rectangle(
+        (55, 135, W - 55, H - 55),
+        radius=22,
+        fill=(25, 25, 32),
+        outline=purple,
+        width=3
     )
 
     d.text(
@@ -398,7 +434,11 @@ def make_image(item, mode="event"):
         d.text(
             (95, y),
             line,
-            font=h1 if len(lines) == 1 else h2,
+            font=(
+                h1
+                if len(lines) == 1
+                else h2
+            ),
             fill=white
         )
 
@@ -417,14 +457,14 @@ def make_image(item, mode="event"):
         ("結果", item["result"])
     ]
 
-    x_positions = [
+    positions = [
         95,
         500,
         905
     ]
 
     for x, (label, value) in zip(
-        x_positions,
+        positions,
         labels
     ):
 
@@ -446,7 +486,7 @@ def make_image(item, mode="event"):
 
         d.text(
             (95, 665),
-            f"発表まで約 {NOTICE_MINUTES} 分",
+            "発表まで約30分",
             font=body,
             fill=purple
         )
@@ -460,232 +500,184 @@ def make_image(item, mode="event"):
             fill=purple
         )
 
-    else:
-
-        d.text(
-            (95, 665),
-            item["note"][:50],
-            font=small,
-            fill=gray
-        )
-
     path = Path("generated")
-    path.mkdir(exist_ok=True)
-
-    safe = re.sub(
-        r"[^0-9A-Za-z_-]+",
-        "_",
-        item["indicator"]
-    )[:45]
-
-    out = path / f"{item['id']}_{mode}.png"
-
-    img.save(
-        out,
-        "PNG",
-        optimize=True
+    path.mkdir(
+        exist_ok=True
     )
 
-    return out
+    output = (
+        path /
+        f"{item['id']}_{mode}.png"
+    )
+
+    img.save(
+        output,
+        "PNG"
+    )
+
+    return output
 
 
-def discord_send(image_path, content=None):
+def send_discord(image_path):
 
-    with open(image_path, "rb") as f:
-
-        files = {
-            "file": (
-                image_path.name,
-                f,
-                "image/png"
-            )
-        }
-
-        data = {}
-
-        if content:
-            data["content"] = content
+    with open(
+        image_path,
+        "rb"
+    ) as f:
 
         response = requests.post(
             DISCORD_WEBHOOK_URL,
-            data=data,
-            files=files,
-            timeout=20
+            files={
+                "file": (
+                    image_path.name,
+                    f,
+                    "image/png"
+                )
+            },
+            timeout=30
         )
+
+    print(
+        "Discord status:",
+        response.status_code
+    )
 
     response.raise_for_status()
 
 
 def main():
 
-    state = load_state()
+    print(
+        "=== Economic Calendar Bot ==="
+    )
 
     now = datetime.now(TZ)
 
     print(
-        "Economic calendar bot started:",
+        "現在時刻:",
         now.isoformat()
     )
 
-    try:
+    items = fetch_calendar()
 
-        items = fetch_calendar()
+    state = load_state()
 
-        print(
-            "取得件数:",
-            len(items)
+    # 30分前通知
+    for item in items:
+
+        if not item["datetime"]:
+            continue
+
+        dt = datetime.fromisoformat(
+            item["datetime"]
         )
 
-        today_key = now.strftime(
-            "%Y-%m-%d"
+        seconds = (
+            dt - now
+        ).total_seconds()
+
+        key = (
+            item["id"] +
+            ":notice"
         )
 
-        # 今日の指標
-        for item in items:
-
-            if not item.get("datetime"):
-                continue
-
-            dt = datetime.fromisoformat(
-                item["datetime"]
-            )
-
-            if dt.date() != now.date():
-                continue
-
-            key = (
-                f"{today_key}:"
-                f"{item['id']}"
-            )
-
-            if key in state["posted_day"]:
-                continue
-
-            image = make_image(
-                item,
-                "event"
-            )
-
-            discord_send(image)
-
-            state["posted_day"][key] = (
-                now.isoformat()
-            )
-
-            save_state(state)
-
-        # 30分前
-        for item in items:
-
-            if not item.get("datetime"):
-                continue
-
-            dt = datetime.fromisoformat(
-                item["datetime"]
-            )
-
-            seconds = (
-                dt - now
-            ).total_seconds()
-
-            key = (
-                f"{item['id']}:notice"
-            )
-
-            if (
-                0 <= seconds <= NOTICE_MINUTES * 60
-                and key not in state["posted_notice"]
-            ):
-
-                image = make_image(
-                    item,
-                    "notice"
-                )
-
-                discord_send(image)
-
-                state["posted_notice"][key] = (
-                    now.isoformat()
-                )
-
-                save_state(state)
-
-        # 結果
-        for item in items:
-
-            result = item["result"]
-
-            if result in (
-                "-",
-                "",
-                "―",
-                "—"
-            ):
-                continue
-
-            key = (
-                f"{item['id']}:"
-                f"result:"
-                f"{result}"
-            )
-
-            if key in state["posted_result"]:
-                continue
-
-            image = make_image(
-                item,
-                "result"
-            )
-
-            discord_send(image)
-
-            state["posted_result"][key] = (
-                now.isoformat()
-            )
-
-            save_state(state)
-
-        # 古い記録を削除
-        cutoff = (
-            now -
-            timedelta(days=14)
-        )
-
-        for section in (
-            "posted_day",
-            "posted_notice",
-            "posted_result"
+        if (
+            0 <= seconds <= 1800
+            and key not in state["posted_notice"]
         ):
 
-            cleaned = {}
+            print(
+                "30分前通知:",
+                item["indicator"]
+            )
 
-            for key, value in state[section].items():
+            image = make_image(
+                item,
+                "notice"
+            )
 
-                try:
-                    saved_time = datetime.fromisoformat(
-                        value
-                    )
+            send_discord(image)
 
-                    if saved_time >= cutoff:
-                        cleaned[key] = value
+            state["posted_notice"][key] = (
+                now.isoformat()
+            )
 
-                except Exception:
-                    pass
+            save_state(state)
 
-            state[section] = cleaned
+    # 結果発表後
+    for item in items:
+
+        result = item["result"]
+
+        if result in [
+            "",
+            "-",
+            "―",
+            "—"
+        ]:
+            continue
+
+        key = (
+            item["id"] +
+            ":result:" +
+            result
+        )
+
+        if key in state["posted_result"]:
+            continue
+
+        print(
+            "結果:",
+            item["indicator"],
+            result
+        )
+
+        image = make_image(
+            item,
+            "result"
+        )
+
+        send_discord(image)
+
+        state["posted_result"][key] = (
+            now.isoformat()
+        )
 
         save_state(state)
 
-        print("処理完了")
+    # 古い記録を削除
+    cutoff = (
+        now -
+        timedelta(days=14)
+    )
 
-    except Exception as e:
+    for section in [
+        "posted_notice",
+        "posted_result"
+    ]:
 
-        print(
-            "ERROR:",
-            repr(e)
-        )
+        cleaned = {}
 
-        raise
+        for key, value in state[section].items():
+
+            try:
+                saved = datetime.fromisoformat(
+                    value
+                )
+
+                if saved >= cutoff:
+                    cleaned[key] = value
+
+            except Exception:
+                pass
+
+        state[section] = cleaned
+
+    save_state(state)
+
+    print(
+        "=== 完了 ==="
+    )
 
 
 if __name__ == "__main__":
