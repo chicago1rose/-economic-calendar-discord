@@ -1,4 +1,4 @@
-name: Calendar Test
+name: Finance Calendar Test
 
 on:
   workflow_dispatch:
@@ -8,32 +8,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install requests
-        run: python -m pip install requests
-
-      - name: Test Investing
+      - name: Test API
         run: |
           python - <<'PY'
           import requests
 
-          url = "https://www.investing.com/economic-calendar/"
+          url = "https://www.financecalendar.com/wp-json/fc/v1/today"
 
-          headers = {
-              "User-Agent": "Mozilla/5.0"
-          }
-
-          r = requests.get(
-              url,
-              headers=headers,
-              timeout=30
-          )
+          r = requests.get(url, timeout=30)
 
           print("STATUS:", r.status_code)
           print("LENGTH:", len(r.text))
-          print(r.text[:500])
+          print(r.text[:3000])
           PY
